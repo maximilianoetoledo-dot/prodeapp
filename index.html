@@ -531,10 +531,10 @@
 
   <div class="content">
     <div id="tab-partidos" class="tab-content active">
-      <p class="section-label">Hoy</p>
+      <p class="section-label">Fecha actual</p>
       <div id="matches-hoy"><div class="loading">Cargando partidos...</div></div>
       <div class="section-gap">
-        <p class="section-label">Mañana</p>
+        <p class="section-label">Próxima fecha</p>
         <div id="matches-manana"></div>
       </div>
     </div>
@@ -678,23 +678,84 @@ async function loadMatches() {
 
   if (!matches) return;
 
-  matches.forEach(m => {
-    const bettors = counts[m.id] || 0;
-    const myBet = userBets.find(b => b.match_id === m.id);
-    const card = buildMatchCard(m, bettors, myBet);
+  // Agrupar por liga para mostrar por jornada
+  const ligaMatches = [];
+  const wcMatches = [];
 
+  matches.forEach(m => {
     if (isWC(m.league)) {
-      wcEl.appendChild(card);
-    } else if (isToday(m.match_time)) {
-      hoyEl.appendChild(card);
-    } else if (isTomorrow(m.match_time)) {
-      mananaEl.appendChild(card);
+      wcMatches.push(m);
+    } else {
+      ligaMatches.push(m);
     }
   });
 
-  if (!hoyEl.innerHTML) hoyEl.innerHTML = '<div class="empty">No hay partidos hoy.</div>';
-  if (!mananaEl.innerHTML) mananaEl.innerHTML = '<div class="empty">No hay partidos mañana.</div>';
-  if (!wcEl.innerHTML) wcEl.innerHTML = '<div class="empty">No hay partidos cargados.</div>';
+  // Agrupar ligas por nombre de jornada
+  const jornadas = {};
+  ligaMatches.forEach(m => {
+    if (!jornadas[m.league]) jornadas[m.league] = [];
+    jornadas[m.league].push(m);
+  });
+
+  // Separar jornadas en "en curso / recientes" y "próximas"
+  const now = new Date();
+  const enCurso = {};
+  const proximas = {};
+
+  Object.entries(jornadas).forEach(([liga, partidos]) => {
+    const tieneUpcoming = partidos.some(p => p.status === 'upcoming');
+    const masReciente = new Date(Math.max(...partidos.map(p => new Date(p.match_time))));
+    const diasDesde = (now - masReciente) / (1000 * 60 * 60 * 24);
+
+    if (tieneUpcoming || diasDesde < 3) {
+      enCurso[liga] = partidos;
+    } else {
+      proximas[liga] = partidos;
+    }
+  });
+
+  // Si no hay en curso, mostrar las próximas
+  const jornadasMostrarHoy = Object.keys(enCurso).length > 0 ? enCurso : proximas;
+  const jornadasMostrarManana = Object.keys(enCurso).length > 0 ? proximas : {};
+
+  // Renderizar sección HOY (jornada actual)
+  Object.entries(jornadasMostrarHoy).forEach(([liga, partidos]) => {
+    const label = document.createElement('p');
+    label.className = 'section-label';
+    label.style.marginTop = '8px';
+    label.textContent = liga;
+    hoyEl.appendChild(label);
+    partidos.forEach(m => {
+      const bettors = counts[m.id] || 0;
+      const myBet = userBets.find(b => b.match_id === m.id);
+      hoyEl.appendChild(buildMatchCard(m, bettors, myBet));
+    });
+  });
+
+  // Renderizar sección MAÑANA (próxima jornada)
+  Object.entries(jornadasMostrarManana).forEach(([liga, partidos]) => {
+    const label = document.createElement('p');
+    label.className = 'section-label';
+    label.style.marginTop = '8px';
+    label.textContent = liga;
+    mananaEl.appendChild(label);
+    partidos.forEach(m => {
+      const bettors = counts[m.id] || 0;
+      const myBet = userBets.find(b => b.match_id === m.id);
+      mananaEl.appendChild(buildMatchCard(m, bettors, myBet));
+    });
+  });
+
+  // Mundial
+  wcMatches.forEach(m => {
+    const bettors = counts[m.id] || 0;
+    const myBet = userBets.find(b => b.match_id === m.id);
+    wcEl.appendChild(buildMatchCard(m, bettors, myBet));
+  });
+
+  if (!hoyEl.innerHTML) hoyEl.innerHTML = '<div class="empty">No hay partidos cargados.</div>';
+  if (!mananaEl.innerHTML) mananaEl.innerHTML = '<div class="empty">No hay más jornadas cargadas.</div>';
+  if (!wcEl.innerHTML) wcEl.innerHTML = '<div class="empty">No hay partidos del Mundial cargados.</div>';
 }
 
 function buildMatchCard(m, bettors, myBet) {
